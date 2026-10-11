@@ -29,8 +29,8 @@ R 包：survival, riskRegression, prodlim, coxphf, ggplot2, patchwork, openxlsx,
 4.4B 参照组由环境变量 `REF_HR` 控制（默认 `Sys-TG`）。
 
 ## 采用的默认设定（交接文档第 6 节待确认问题）
-1. 模式归类：按《解剖分类 × 肿瘤模式分类》文档。TTU（癌栓升级）并入 IHG，nMVI（新发血管侵犯）并入 NIH；Sys-TG = 仅 STG，Sys-NL = NIH + NEH，其余组合均归为 Sys-TG+NL。
-   与早期规则相比，有 22 例改判（STG+TTU 14 例，EHG+TTU 8 例：原 Sys-TG → 现 Sys-TG+NL）；早期规则结果见补充图 figS_v0 和 xlsx 的 `Sens_earlier_rule_HR`，逐组合对照见 `Pattern_classification`。
+1. 模式归类：按《解剖分类 × 肿瘤模式分类》文档，TTU（癌栓升级）并入 IHG，nMVI（新发血管侵犯）并入 NIH，再按部位 × 形式交叉：
+   部位 Sys = 有 STG 或同时涉及肝内外，否则 IH / EH；形式 TG = 仅增大，NL = 仅新发，TG+NL = 两者都有。Sys-TG = 74 例（含 STG+TTU 14 例、EHG+TTU 8 例）。逐组合归类见 xlsx 的 `Pattern_classification`。
 2. 死因合并：IH / EH / Systemic HCC-related 各为一类；Non-HCC = Liver-related + Other Causes + Treatment-related；
    Undetermined = Unclassified HCC-related + Unknown（分析队列中共 8 例，作为竞争事件保留，敏感性分析中排除；全队列 16 例死因缺失者均不在进展队列中）。
 3. 协变量：TTP + 年龄、性别、HBV、ECOG、ALBI、AFP≥400、PIVKA≥1000、肿瘤数>3、肿瘤大小、Vp 分级、HVTT、EHS、肝硬化；strata(Group)。

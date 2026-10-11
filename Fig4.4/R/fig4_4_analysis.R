@@ -99,27 +99,21 @@ print(qc, right = FALSE)
 ## 2. Analysis cohort, progression pattern, outcome coding, covariates
 ## -----------------------------------------------------------------------------
 ## Pattern definition (classification document "解剖分类 x 肿瘤模式分类"):
-##   components: IHG 肝内病灶增大, TTU 癌栓升级 (-> IHG), NIH 肝内新发病灶, nMVI 新发血管侵犯 (-> NIH),
-##               EHG 肝外病灶增大, NEH 肝外新发转移, STG 系统性肿瘤增大
-##   (1) IH-TG only IHG          (2) IH-NL only NIH          (3) IH-TG+NL IHG + NIH
-##   (4) EH-TG only EHG          (5) EH-NL only NEH          (6) EH-TG+NL EHG + NEH
-##   (7) Sys-TG only STG         (8) Sys-NL NIH + NEH        (9) Sys-TG+NL any other combination
+##   components: IHG 肝内病灶增大, TTU 癌栓升级 (counted as IHG), NIH 肝内新发病灶,
+##               nMVI 新发血管侵犯 (counted as NIH), EHG 肝外病灶增大, NEH 肝外新发转移, STG 系统性肿瘤增大
+##   site: Sys = STG present, or both intrahepatic and extrahepatic components; otherwise IH or EH
+##   form: TG = growth only (IHG/EHG/STG); NL = new lesions only (NIH/NEH); TG+NL = both
+##   (1) IH-TG  IHG            (2) IH-NL  NIH            (3) IH-TG+NL  IHG + NIH
+##   (4) EH-TG  EHG            (5) EH-NL  NEH            (6) EH-TG+NL  EHG + NEH
+##   (7) Sys-TG growth only with systemic involvement (STG; STG + IHG/TTU; EHG + IHG/TTU)
+##   (8) Sys-NL NIH + NEH      (9) Sys-TG+NL systemic involvement with both growth and new lesions
 COMP <- c("肝内病灶增大" = "IHG", "癌栓升级" = "IHG", "肝内新发病灶" = "NIH", "新发血管侵犯" = "NIH",
           "肝外病灶增大" = "EHG", "肝外新发转移" = "NEH", "系统性肿瘤增大" = "STG")
-PAT_KEY <- c("IHG" = "IH-TG", "NIH" = "IH-NL", "IHG+NIH" = "IH-TG+NL",
-             "EHG" = "EH-TG", "NEH" = "EH-NL", "EHG+NEH" = "EH-TG+NL",
-             "STG" = "Sys-TG", "NEH+NIH" = "Sys-NL")
 map_pattern <- function(s) vapply(strsplit(s, ";"), function(t) {
   t <- trimws(t)
   unk <- setdiff(t, names(COMP))
   if (length(unk)) stop("Unknown PFS_model component: ", paste(unk, collapse = ","))
-  key <- paste(sort(unique(COMP[t])), collapse = "+")
-  if (key %in% names(PAT_KEY)) PAT_KEY[[key]] else "Sys-TG+NL"
-}, character(1))
-## earlier site x form rule (sensitivity): any IH + EH involvement or STG = Sys; TG-only combinations
-## such as STG + TTU or EHG + TTU were Sys-TG (this reproduces the original figure's Sys-TG n = 74)
-map_pattern_v0 <- function(s) vapply(strsplit(s, ";"), function(t) {
-  cmp <- unique(COMP[trimws(t)])
+  cmp <- unique(COMP[t])
   ih <- any(cmp %in% c("IHG", "NIH")); eh <- any(cmp %in% c("EHG", "NEH")); sy <- "STG" %in% cmp
   tg <- any(cmp %in% c("IHG", "EHG", "STG")); nl <- any(cmp %in% c("NIH", "NEH"))
   site <- if (sy || (ih && eh)) "Sys" else if (ih) "IH" else "EH"
@@ -190,13 +184,10 @@ COVS <- c("TTP", "Age10", "Male", "HBV", "ECOG", "ALBI", "AFP400", "PIVKA1000", 
           "TumorSize", "Vp", "HVTT", "EHS", "Cirrhosis")
 d      <- prep(all0[f_final, ])
 d_del  <- prep(all0[f_ppos, ])        # sensitivity: flagged patients kept
-d_v0   <- prep(all0[f_final, ], map_pattern_v0)   # sensitivity: earlier pattern rule
 pattern_check <- with(all0[f_final, ], {
   combo <- vapply(strsplit(PFS_model, ";"), function(t) paste(sort(unique(trimws(t))), collapse = ";"), "")
-  z <- as.data.frame(table(PFS_model_components = combo, pattern = map_pattern(PFS_model),
-                           earlier_rule = map_pattern_v0(PFS_model)), stringsAsFactors = FALSE)
+  z <- as.data.frame(table(PFS_model_components = combo, pattern = map_pattern(PFS_model)), stringsAsFactors = FALSE)
   z <- z[z$Freq > 0, ]; z[order(factor(z$pattern, PAT_LEVELS), -z$Freq), ] })
-log_msg("Pattern rule: ", sum(d$pattern != d_v0$pattern), " patients classified differently from the earlier rule")
 stopifnot(!anyNA(d[, c("time", "status", "pattern", COVS, "Group")]))
 log_msg("Analysis cohort n = ", nrow(d), "; deaths = ", sum(d$status > 0))
 
@@ -528,8 +519,6 @@ VAL <- rbind(
   data.frame(variant = "ORIGINAL matrix (target)", n = NA, deaths = NA, allcause_SysTG = "1.96 (1.48-2.61)",
              csHR_Sys_SysTG = "4.11", allcause_IHNL = "0.76"),
   val_one(d, "Main cohort, adjusted, strata(Group)", TRUE),
-  val_one(d_v0, "Earlier pattern rule (Sys-TG n=74), unadjusted", FALSE),
-  val_one(d_v0, "Earlier pattern rule, baseline covariates without TTP", TRUE, covs = setdiff(COVS, "TTP")),
   val_one(d, "Main cohort, unadjusted, strata(Group)", FALSE),
   val_one(d_del, "Incl. flagged pts, adjusted", TRUE),
   val_one(d_del, "Incl. flagged pts, unadjusted", FALSE),
@@ -549,8 +538,6 @@ S_undet_hr  <- hr_matrix(d_nound, type = "cs")
 S_undet_cif <- derive(cif_engine(d_nound, full_causes = 1:4, na_causes = integer(0)), pat_w(d_nound))
 ## include flagged patients
 S_del_hr <- hr_matrix(d_del, type = "cs")
-## earlier pattern rule
-S_v0_hr <- hr_matrix(d_v0, type = "cs")
 ## treatment-group interaction for post-progression all-cause death
 rhs0 <- paste(c("pattern", COVS, "strata(Group)"), collapse = " + ")
 fi0 <- coxph(as.formula(paste("Surv(time, status > 0) ~", rhs0)), data = d)
@@ -700,9 +687,6 @@ figS_firth <- plot_hr_matrix(B_firth, title = sprintf("Supplementary: Firth-pena
                              caption = adj_note)
 figS_undet <- plot_hr_matrix(S_undet_hr, title = sprintf("Supplementary: HR / csHR excluding undetermined deaths (reference: %s)", REF_HR),
                              subtitle = sprintf("n = %d (%d deaths with unclassified/unknown/missing cause removed)", nrow(d_nound), sum(d$status == 5)), caption = adj_note)
-figS_v0 <- plot_hr_matrix(S_v0_hr, title = sprintf("Supplementary: HR / csHR with the earlier pattern rule (reference: %s)", REF_HR),
-                          subtitle = sprintf("STG + TTU and EHG + TTU classified as Sys-TG instead of Sys-TG+NL (%d patients reclassified)",
-                                             sum(d$pattern != d_v0$pattern)), caption = adj_note)
 figS_del <- plot_hr_matrix(S_del_hr, title = sprintf("Supplementary: HR / csHR including patients flagged for deletion (reference: %s)", REF_HR),
                            subtitle = sprintf("n = %d", nrow(d_del)), caption = adj_note)
 
@@ -824,9 +808,9 @@ draw_page(lm_tab_grob()); dev.off()
 
 supp <- list(figS_AJ = figS_AJ, figS_CIF6 = figS_F6, figS_CIF24 = figS_F24,
              figS_ARD6 = figA2_6, figS_ARD24 = figA2_24, figS_PMR6 = figA4_6, figS_PMR24 = figA4_24,
-             figS_firth = figS_firth, figS_undet = figS_undet, figS_del = figS_del, figS_v0 = figS_v0)
+             figS_firth = figS_firth, figS_undet = figS_undet, figS_del = figS_del)
 supp_dims <- list(c(11, 7.5), c(11, 7.5), c(11, 7.5), c(11, 7.5), c(11, 7.5), c(12, 6), c(12, 6),
-                  c(11.5, 8), c(11.5, 8), c(11.5, 8), c(11.5, 8))
+                  c(11.5, 8), c(11.5, 8), c(11.5, 8))
 cairo_pdf(file.path(OUT_DIR, "Fig4.4_Supplementary.pdf"), width = 12, height = 8.5, onefile = TRUE)
 for (p in supp) print(p)
 dev.off()
@@ -852,7 +836,6 @@ sheets <- list(
   Sens_excl_undet_HR = hr_tab_fmt(S_undet_hr),
   Sens_excl_undet_CIF12 = r3(data.frame(pattern = PAT_LEVELS, S_undet_cif$F[, , "m12"], check.names = FALSE)),
   Sens_incl_flagged_HR = hr_tab_fmt(S_del_hr),
-  Sens_earlier_rule_HR = hr_tab_fmt(S_v0_hr),
   Pattern_classification = pattern_check,
   Interaction_treatment = r3(INTER),
   Run_info = data.frame(item = c("date", "R", "survival", "riskRegression", "coxphf", "bootstrap B (successful)",
@@ -910,7 +893,7 @@ grid.text(paste(c(
   "", "Contents:", "  1. Figure 4.4A1-A4  adjusted 12-month CIF matrix; ARD vs population average; cause composition at 6/12/24 months; PMR enrichment",
   sprintf("  2. Figure 4.4B1-B2  csHR and sHR matrices (reference %s) + overall Wald; Lunn-McNeil heterogeneity tests", REF_HR),
   "  3. Cohort flow, events and numbers at risk;  4. Lunn-McNeil and follow-up tests;  5. Overall Wald tests, PH tests",
-  "  6. Validation vs original IH-TG matrix (incl. earlier pattern rule);  7. Treatment interaction;  8+. Supplementary figures (sHR, ARD, PMR, unadjusted AJ, 6/24 months, Firth, sensitivity)"),
+  "  6. Validation vs original IH-TG matrix   7. Treatment interaction;  8+. Supplementary figures (sHR, ARD, PMR, unadjusted AJ, 6/24 months, Firth, sensitivity)"),
   collapse = "\n"), 0.05, 0.72, hjust = 0, vjust = 1, gp = gpar(fontsize = 10.5, lineheight = 1.25))
 for (m in mains) print(m[[1]])
 draw_page(lm_tab_grob())
@@ -919,11 +902,10 @@ pc_show <- pattern_check
 pc_show$PFS_model_components <- vapply(strsplit(pc_show$PFS_model_components, ";"), function(t)
   paste(c("肝内病灶增大" = "IHG", "癌栓升级" = "TTU", "肝内新发病灶" = "NIH", "新发血管侵犯" = "nMVI",
           "肝外病灶增大" = "EHG", "肝外新发转移" = "NEH", "系统性肿瘤增大" = "STG")[t], collapse = " + "), "")
-pc_show$changed <- ifelse(pc_show$pattern != pc_show$earlier_rule, "<- reclassified", "")
-names(pc_show) <- c("Components (TTU->IHG, nMVI->NIH)", "Pattern", "Earlier rule", "n", "")
+names(pc_show) <- c("Components (TTU->IHG, nMVI->NIH)", "Pattern", "n")
 for (ch in split(seq_len(nrow(pc_show)), ceiling(seq_len(nrow(pc_show)) / 24)))
 table_page(pc_show[ch, ], "Progression-pattern classification by component combination (analysis cohort)", base = 6,
-           note = "(1) IH-TG only IHG; (2) IH-NL only NIH; (3) IH-TG+NL IHG+NIH; (4) EH-TG only EHG; (5) EH-NL only NEH; (6) EH-TG+NL EHG+NEH; (7) Sys-TG only STG; (8) Sys-NL NIH+NEH; (9) Sys-TG+NL all other combinations")
+           note = "Site: Sys = STG or both intrahepatic and extrahepatic components, else IH / EH. Form: TG = growth only (IHG/EHG/STG), NL = new lesions only (NIH/NEH), TG+NL = both.")
 table_page(ev_show, "Deaths after first progression by pattern and cause (whole follow-up) and numbers at risk",
            note = "IH/EH/Sys = intrahepatic / extrahepatic / systemic HCC-related death; Non-HCC = liver-related + other + treatment-related; Undetermined = unclassified HCC-related + unknown + missing cause", base = 8)
 table_page(lm_show, "Lunn-McNeil cross-cause heterogeneity tests (likelihood ratio)", base = 9,
