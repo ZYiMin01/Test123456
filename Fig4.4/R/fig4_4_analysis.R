@@ -43,7 +43,8 @@ dir.create(file.path(OUT_DIR, "png"), showWarnings = FALSE)
 
 PAT_LEVELS <- c("IH-TG", "IH-NL", "IH-TG+NL", "EH-TG", "EH-NL", "EH-TG+NL",
                 "Sys-TG", "Sys-NL", "Sys-TG+NL")
-REF_MAIN   <- "IH-NL"
+REF_MAIN   <- "IH-NL"            # internal dummy coding of the CIF engine only (estimates do not depend on it)
+REF_HR     <- Sys.getenv("REF_HR", "Sys-TG")   # reference group for the 4.4B HR matrices
 CAUSES     <- c(IH = 1, EH = 2, Sys = 3, NonHCC = 4, Undet = 5)
 CAUSE_LAB  <- c(IH = "Intrahepatic HCC", EH = "Extrahepatic HCC", Sys = "Systemic HCC",
                 NonHCC = "Non-HCC", Undet = "Undetermined", All = "All-cause")
@@ -387,7 +388,7 @@ wald_overall <- function(fit, idx) {
   chi <- as.numeric(t(b[ok]) %*% solve(V[ok, ok], b[ok]))
   c(chisq = chi, df = sum(ok), p = pchisq(chi, sum(ok), lower.tail = FALSE))
 }
-hr_matrix <- function(x, ref = REF_MAIN, adjust = TRUE, type = c("cs", "fg", "firth"),
+hr_matrix <- function(x, ref = REF_HR, adjust = TRUE, type = c("cs", "fg", "firth"),
                       outcomes = c("All", "IH", "EH", "Sys", "NonHCC")) {
   type <- match.arg(type)
   x$pattern <- relevel(factor(x$pattern, PAT_LEVELS), ref)
@@ -429,6 +430,8 @@ hr_matrix <- function(x, ref = REF_MAIN, adjust = TRUE, type = c("cs", "fg", "fi
                     n = as.vector(table(x$pattern)[c(ref, pats)]),
                     HR = c(1, exp(b)), lo = c(NA, lo), hi = c(NA, hi), p = c(NA, p), row.names = NULL)
     r$NE <- r$pattern != ref & (r$events < NE_MIN | !is.finite(r$hi) | r$hi > 1e3)
+    r$ref_events <- r$events[1]
+    if (r$ref_events[1] < NE_MIN) r$NE[-1] <- TRUE        # sparse reference cell: whole column not estimable
     res[[o]] <- r
   }
   res <- do.call(rbind, res)
@@ -603,7 +606,7 @@ plot_cif_matrix <- function(tab, month, title, subtitle = NULL, row_order = NULL
          caption = if (!is.null(caption)) wrap(caption, 190)) + theme_mat()
 }
 ## composition bars
-plot_comp <- function(est_obj, month, row_order) {
+plot_comp <- function(est_obj, month, row_order, show_y = FALSE) {
   Q <- est_obj$Q[, , paste0("m", month)]
   x <- do.call(rbind, lapply(colnames(Q), function(cc) data.frame(pattern = rownames(Q), cause = cc, Q = Q[, cc])))
   x$pattern <- factor(x$pattern, rev(row_order))
@@ -621,21 +624,24 @@ plot_comp <- function(est_obj, month, row_order) {
                        expand = expansion(add = 0.5)) +
     scale_fill_manual(values = COL_CAUSE, breaks = c("IH", "EH", "Sys", "NonHCC", "Undet"),
                       labels = CAUSE_LAB[c("IH", "EH", "Sys", "NonHCC", "Undet")], name = NULL) +
-    scale_x_continuous(labels = percent, expand = c(0, 0), breaks = c(0, .5, 1), position = "top") +
+    scale_x_continuous(labels = percent, expand = c(0, 0), breaks = c(.25, .5, .75), position = "top") +
     labs(title = sprintf("Cause composition at %d months", month), x = NULL, y = NULL) +
     theme_minimal(base_size = 10) +
-    theme(panel.grid = element_blank(), axis.text.y = element_blank(), legend.position = "bottom",
+    theme(panel.grid = element_blank(), legend.position = "bottom",
+          axis.text.y = if (show_y) element_text(face = "bold", size = 9.5, colour = INK) else element_blank(),
           legend.text = element_text(size = 7.5), legend.key.size = unit(0.35, "cm"),
           plot.title = element_text(size = 10, face = "bold", colour = INK)) +
     guides(fill = guide_legend(nrow = 2, byrow = TRUE))
 }
 ## HR matrix
-plot_hr_matrix <- function(B, title, subtitle = NULL, caption = NULL, ref = REF_MAIN,
+plot_hr_matrix <- function(B, title, subtitle = NULL, caption = NULL, ref = REF_HR,
                            outcomes = c("All", "IH", "EH", "Sys", "NonHCC"), hr_lab = "HR") {
   x <- B$tab[B$tab$outcome %in% outcomes, ]
   x$pattern <- factor(as.character(x$pattern), rev(PAT_LEVELS))
   x$isref <- as.character(x$pattern) == ref
-  x$lab <- ifelse(x$isref, "Reference", ifelse(x$NE, sprintf("NE\n(%d event%s)", x$events, ifelse(x$events == 1, "", "s")),
+  ev_s <- function(n) sprintf("%d event%s", n, ifelse(n == 1, "", "s"))
+  x$lab <- ifelse(x$isref, ifelse(x$events < NE_MIN, paste0("Reference\n(", ev_s(x$events), ")"), "Reference"),
+           ifelse(x$NE, ifelse(x$ref_events < NE_MIN, "NE\n(sparse reference)", paste0("NE\n(", ev_s(x$events), ")")),
                   paste0(fmt_hr(x$HR, x$lo, x$hi), stars(x$p))))
   x$fill <- ifelse(x$isref | x$NE, NA, pmax(pmin(log2(x$HR), 2.5), -2.5))
   x$txtcol <- ifelse(!is.na(x$fill) & abs(x$fill) > 1.6, "white", INK)
@@ -679,24 +685,25 @@ figA <- plot_cif_matrix(tab_F, TAU_MAIN,
                                   "Composition labels show % of deaths by 12 months (segments <8% unlabelled)."), 230),
                   theme = theme(plot.caption = element_text(size = 7.5, colour = INK2, hjust = 0)))
 figB <- plot_hr_matrix(B_cs,
-          title = "B  Post-progression death by first-progression pattern (reference: IH-NL)",
+          title = sprintf("B1  Cause-specific hazard ratios by first-progression pattern (reference: %s)", REF_HR),
           subtitle = paste0("All-cause: Cox HR; cause-specific: csHR (cause-specific Cox). ", lm_txt),
-          caption = paste(adj_note, "NE: <3 events in the cell. * P<0.05, ** P<0.01, *** P<0.001 (unadjusted; BH-FDR q values in Table S-HR).",
+          caption = paste(adj_note, "NE: <3 events in the cell or in the reference cell. * P<0.05, ** P<0.01, *** P<0.001 (unadjusted; BH-FDR q values in Table S-HR).",
                           "Overall Wald test of the 8 pattern terms does not depend on the reference."))
 
 ## supplementary figures
-figS_sHR <- plot_hr_matrix(B_fg, title = "Supplementary: subdistribution HR (Fine–Gray) by progression pattern (reference: IH-NL)",
+figS_sHR <- plot_hr_matrix(B_fg, title = sprintf("B1  Subdistribution hazard ratios (Fine–Gray) by progression pattern (reference: %s)", REF_HR),
                            subtitle = "Fine–Gray via survival::finegray with stratum-specific censoring weights; robust SE",
-                           caption = adj_note, outcomes = c("IH", "EH", "Sys", "NonHCC"), hr_lab = "sHR")
-figS_firth <- plot_hr_matrix(B_firth, title = "Supplementary: Firth-penalised HR / csHR (reference: IH-NL)",
+                           caption = paste(adj_note, "NE: <3 events in the cell or in the reference cell. Overall Wald test (df = 8, robust variance) is reference-independent."),
+                           outcomes = c("IH", "EH", "Sys", "NonHCC"), hr_lab = "sHR")
+figS_firth <- plot_hr_matrix(B_firth, title = sprintf("Supplementary: Firth-penalised HR / csHR (reference: %s)", REF_HR),
                              subtitle = "coxphf (Firth-penalised partial likelihood, Wald CI from penalised information); treatment group entered as covariate (coxphf has no strata)",
                              caption = adj_note)
-figS_undet <- plot_hr_matrix(S_undet_hr, title = "Supplementary: HR / csHR excluding undetermined deaths",
+figS_undet <- plot_hr_matrix(S_undet_hr, title = sprintf("Supplementary: HR / csHR excluding undetermined deaths (reference: %s)", REF_HR),
                              subtitle = sprintf("n = %d (%d deaths with unclassified/unknown/missing cause removed)", nrow(d_nound), sum(d$status == 5)), caption = adj_note)
-figS_v0 <- plot_hr_matrix(S_v0_hr, title = "Supplementary: HR / csHR with the earlier pattern rule",
+figS_v0 <- plot_hr_matrix(S_v0_hr, title = sprintf("Supplementary: HR / csHR with the earlier pattern rule (reference: %s)", REF_HR),
                           subtitle = sprintf("STG + TTU and EHG + TTU classified as Sys-TG instead of Sys-TG+NL (%d patients reclassified)",
                                              sum(d$pattern != d_v0$pattern)), caption = adj_note)
-figS_del <- plot_hr_matrix(S_del_hr, title = "Supplementary: HR / csHR including patients flagged for deletion",
+figS_del <- plot_hr_matrix(S_del_hr, title = sprintf("Supplementary: HR / csHR including patients flagged for deletion (reference: %s)", REF_HR),
                            subtitle = sprintf("n = %d", nrow(d_del)), caption = adj_note)
 
 plot_ard <- function(month) {
@@ -714,7 +721,7 @@ plot_ard <- function(month) {
                          values = rescale(c(-25, -10, 0, 10, 25)), limits = c(-25, 25),
                          name = "ARD (percentage points)", guide = guide_colourbar(barwidth = 10, barheight = 0.5, title.position = "top")) +
     scale_x_discrete(position = "top") +
-    labs(title = sprintf("Supplementary: absolute risk difference at %d months vs population-standardised average", month),
+    labs(title = sprintf("A2  Absolute risk difference at %d months vs population-standardised average", month),
          subtitle = "ARD = standardised CIF of the pattern − weighted average over patterns (weights = observed pattern shares); boxed: 95% CI excludes 0",
          caption = wrap(adj_note, 190)) + theme_mat()
 }
@@ -736,7 +743,7 @@ plot_pmr <- function(month) {
     scale_x_log10(breaks = c(0.25, 0.5, 1, 2, 4), labels = c("0.25", "0.5", "1", "2", "4")) +
     coord_cartesian(xlim = c(1 / 8, 8)) +
     labs(x = "CIF-based proportional mortality ratio (log scale)", y = NULL,
-         title = sprintf("Supplementary: cause-of-death enrichment (PMR) at %d months", month),
+         title = sprintf("A4  Cause-of-death enrichment: CIF-based proportional mortality ratio (PMR) at %d months", month),
          subtitle = "PMR = share of deaths from cause j within the pattern / share in all progressors. 95% bootstrap CI (clipped at 1/8 and 8).\nP[Holm]: weighted-effect-coded Wald test (df = 2) that the pattern's csHR is equal across IH/EH/Systemic HCC death (from Lunn–McNeil model).",
          caption = "PMR is a proportion metric, not a risk metric: interpret alongside the absolute CIF matrix; PMRs within a pattern are mutually constrained.") +
     theme_minimal(base_size = 10) +
@@ -754,17 +761,72 @@ figS_F6  <- plot_cif_matrix(tab_F, 6, title = "Supplementary: adjusted 6-month C
 figS_F24 <- plot_cif_matrix(tab_F, 24, title = "Supplementary: adjusted 24-month CIF after first progression",
                             subtitle = "Same models as Figure 4.4A; n = events within 24 months", row_order = row_order_A)
 
+## A1 alone, A3 composition at 6/12/24 months, B2 Lunn-McNeil table ------------------
+figA1 <- plot_cif_matrix(tab_F, TAU_MAIN,
+          title = sprintf("A1  Adjusted %d-month cumulative incidence of death after first progression", TAU_MAIN),
+          subtitle = sprintf("Cause-specific Cox + G-computation (standardised to all %d progressors); %% (95%% bootstrap CI, B = %d); n = events within %d months",
+                             nrow(d), length(boots), TAU_MAIN),
+          caption = paste(adj_note, "Rows ordered by adjusted all-cause CIF; 0 events: no event by the time point (no model estimate shown)."),
+          row_order = row_order_A)
+figA3 <- (plot_comp(est, 6, row_order_A, show_y = TRUE) | plot_comp(est, 12, row_order_A) | plot_comp(est, 24, row_order_A)) +
+  plot_layout(guides = "collect") +
+  plot_annotation(title = "A3  Cause-of-death composition at fixed time points after first progression",
+                  subtitle = "Q = cause-specific standardised CIF / all-cause standardised CIF (sums to 100% within each pattern); labels = % (segments <8% unlabelled)",
+                  caption = wrap(paste(adj_note, "Rows ordered by adjusted 12-month all-cause CIF."), 200),
+                  theme = theme(plot.title = element_text(face = "bold", size = 12, colour = INK),
+                                plot.subtitle = element_text(size = 8.5, colour = INK2),
+                                plot.caption = element_text(size = 7.5, colour = INK2, hjust = 0))) &
+  theme(legend.position = "bottom")
+figA2_6 <- plot_ard(6); figA2_24 <- plot_ard(24)
+figA4_6 <- plot_pmr(6); figA4_24 <- plot_pmr(24)
+lm_tab_grob <- function() {
+  t1 <- data.frame(Test = c("Pattern x cause (9 patterns)", "Site x cause (IH / EH / Sys)", "Form x cause (TG / NL / TG+NL)"),
+                   `LR chi-square` = sprintf("%.2f", LM$chisq), df = LM$df,
+                   P = ifelse(LM$p < 0.001, "<0.001", sprintf("%.3f", LM$p)), check.names = FALSE)
+  t2 <- data.frame(Pattern = FU$pattern,
+    `IH death` = sprintf("%.2f (%.2f-%.2f)", FU$eHR_IH, FU$eHR_IH_lo, FU$eHR_IH_hi),
+    `EH death` = sprintf("%.2f (%.2f-%.2f)", FU$eHR_EH, FU$eHR_EH_lo, FU$eHR_EH_hi),
+    `Systemic death` = sprintf("%.2f (%.2f-%.2f)", FU$eHR_Sys, FU$eHR_Sys_lo, FU$eHR_Sys_hi),
+    `Wald chi2 (df=2)` = sprintf("%.2f", FU$chisq), P = fmt_p(FU$p), `P (Holm)` = fmt_p(FU$p_Holm), check.names = FALSE)
+  th <- ttheme_minimal(base_size = 10, colhead = list(fg_params = list(fontface = "bold")))
+  arrangeGrob(
+    textGrob("B2  Lunn\u2013McNeil test of whether pattern effects differ across intrahepatic / extrahepatic / systemic HCC death",
+             x = 0.02, hjust = 0, gp = gpar(fontsize = 13, fontface = "bold")),
+    textGrob("Overall likelihood-ratio tests (reference-independent; non-HCC and undetermined deaths censored; strata = cause x treatment group; all covariates interact with cause)",
+             x = 0.02, hjust = 0, gp = gpar(fontsize = 9, col = INK2)),
+    tableGrob(t1, rows = NULL, theme = th),
+    textGrob("Follow-up (weighted effect coding): csHR of each pattern vs the pattern-weighted average, per cause; Wald test that the effect is equal across the three causes",
+             x = 0.02, hjust = 0, gp = gpar(fontsize = 9, col = INK2)),
+    tableGrob(t2, rows = NULL, theme = th),
+    ncol = 1, heights = unit(c(0.55, 0.35, 1.45, 0.4, 3.75), "inches"))
+}
+draw_page <- function(g) { grid.newpage(); grid.draw(g) }
+
 save_fig <- function(p, name, w, h) {
   ggsave(file.path(OUT_DIR, paste0(name, ".pdf")), p, width = w, height = h, device = cairo_pdf)
-  ggsave(file.path(OUT_DIR, "png", paste0(name, ".png")), p, width = w, height = h, dpi = 300, bg = "white")
+  ggsave(file.path(OUT_DIR, "png", paste0(name, ".png")), p, width = w, height = h, dpi = 250, bg = "white")
 }
 log_msg("Saving figures ...")
-save_fig(figA, "Fig4.4A_adjusted_CIF_matrix", 13, 7.2)
-save_fig(figB, "Fig4.4B_csHR_matrix_refIHNL", 11.5, 8)
-supp <- list(figS_sHR = figS_sHR, figS_ARD = figS_ARD, figS_PMR = figS_PMR, figS_AJ = figS_AJ,
-             figS_F6 = figS_F6, figS_F24 = figS_F24, figS_firth = figS_firth,
-             figS_undet = figS_undet, figS_del = figS_del, figS_v0 = figS_v0)
-supp_dims <- list(c(10.5, 8), c(11, 7.5), c(12, 6), c(11, 7.5), c(11, 7.5), c(11, 7.5), c(11.5, 8), c(11.5, 8), c(11.5, 8), c(11.5, 8))
+ref_tag <- gsub("[^A-Za-z]", "", REF_HR)
+mains <- list(
+  list(figA,     "Fig4.4A_main_CIF12_plus_composition", 13, 7.2),
+  list(figA1,    "Fig4.4A1_adjusted_CIF12_matrix", 11, 7.5),
+  list(figS_ARD, "Fig4.4A2_ARD12_vs_population_average", 11, 7.5),
+  list(figA3,    "Fig4.4A3_cause_composition_6_12_24m", 13, 6.5),
+  list(figS_PMR, "Fig4.4A4_PMR12_enrichment", 12, 6),
+  list(figB,     paste0("Fig4.4B1_csHR_matrix_ref", ref_tag), 11.5, 8),
+  list(figS_sHR, paste0("Fig4.4B1_sHR_matrix_ref", ref_tag), 10.5, 8))
+for (m in mains) save_fig(m[[1]], m[[2]], m[[3]], m[[4]])
+cairo_pdf(file.path(OUT_DIR, "Fig4.4B2_LunnMcNeil_tests.pdf"), width = 11, height = 6.9)
+draw_page(lm_tab_grob()); dev.off()
+png(file.path(OUT_DIR, "png", "Fig4.4B2_LunnMcNeil_tests.png"), width = 11, height = 6.9, units = "in", res = 250)
+draw_page(lm_tab_grob()); dev.off()
+
+supp <- list(figS_AJ = figS_AJ, figS_CIF6 = figS_F6, figS_CIF24 = figS_F24,
+             figS_ARD6 = figA2_6, figS_ARD24 = figA2_24, figS_PMR6 = figA4_6, figS_PMR24 = figA4_24,
+             figS_firth = figS_firth, figS_undet = figS_undet, figS_del = figS_del, figS_v0 = figS_v0)
+supp_dims <- list(c(11, 7.5), c(11, 7.5), c(11, 7.5), c(11, 7.5), c(11, 7.5), c(12, 6), c(12, 6),
+                  c(11.5, 8), c(11.5, 8), c(11.5, 8), c(11.5, 8))
 cairo_pdf(file.path(OUT_DIR, "Fig4.4_Supplementary.pdf"), width = 12, height = 8.5, onefile = TRUE)
 for (p in supp) print(p)
 dev.off()
@@ -845,12 +907,13 @@ grid.text(paste(c(
           sum(d$status == 1), sum(d$status == 2), sum(d$status == 3), sum(d$status == 4), sum(d$status == 5)),
   sprintf("Median post-progression follow-up (reverse KM): %.1f months. Time zero = date of first progression; main time point %d months.", fu_median[1], TAU_MAIN),
   sprintf("Bootstrap: %d successful patient-level resamples (all models refitted in each). Engine check vs riskRegression: max diff %.1e.", length(boots), engine_check),
-  "", "Contents:", "  1. Figure 4.4A  adjusted 12-month CIF matrix + cause composition",
-  "  2. Figure 4.4B  HR / csHR matrix (reference IH-NL) + overall Wald + Lunn-McNeil",
+  "", "Contents:", "  1. Figure 4.4A1-A4  adjusted 12-month CIF matrix; ARD vs population average; cause composition at 6/12/24 months; PMR enrichment",
+  sprintf("  2. Figure 4.4B1-B2  csHR and sHR matrices (reference %s) + overall Wald; Lunn-McNeil heterogeneity tests", REF_HR),
   "  3. Cohort flow, events and numbers at risk;  4. Lunn-McNeil and follow-up tests;  5. Overall Wald tests, PH tests",
   "  6. Validation vs original IH-TG matrix (incl. earlier pattern rule);  7. Treatment interaction;  8+. Supplementary figures (sHR, ARD, PMR, unadjusted AJ, 6/24 months, Firth, sensitivity)"),
   collapse = "\n"), 0.05, 0.72, hjust = 0, vjust = 1, gp = gpar(fontsize = 10.5, lineheight = 1.25))
-print(figA); print(figB)
+for (m in mains) print(m[[1]])
+draw_page(lm_tab_grob())
 table_page(flow, "Cohort flow")
 pc_show <- pattern_check
 pc_show$PFS_model_components <- vapply(strsplit(pc_show$PFS_model_components, ";"), function(t)

@@ -17,8 +17,8 @@
 5   excluded: PPOS missing (PFS > OS, data error)                                                         1
 6   excluded: flagged for deletion (non-HCC histology / other cancer / external treatment / long LTFU)   11
 7 Analysis cohort                                                                                      1786
-[06:37:40] Pattern rule: 22 patients classified differently from the earlier rule
-[06:37:40] Analysis cohort n = 1786; deaths = 1186
+[07:35:30] Pattern rule: 22 patients classified differently from the earlier rule
+[07:35:30] Analysis cohort n = 1786; deaths = 1186
     pattern   n  IH EH Sys NonHCC Undet All
 1     IH-TG 476 221 24  49     21     4 319
 2     IH-NL 372 134 15  34     19     1 203
@@ -29,16 +29,16 @@
 7    Sys-TG  52  19  3  16      1     0  39
 8    Sys-NL  94  28 14  23      2     0  67
 9 Sys-TG+NL 219  89 17  55      6     0 167
-[06:37:40] Median post-progression follow-up (reverse KM): 18.7 months (17.3-21.1)
-[06:37:44] Engine vs riskRegression::predictRisk: max |diff| in 12-month CIF = 7.22e-16
-[06:37:44] Point estimates ...
-[06:37:44] Bootstrap: B = 1000, cores = 4
-[06:38:57] Bootstrap done: 1000 successful replicates in 1.2 min
-[06:38:58] B1: cause-specific Cox ...
-[06:38:58] B1: Fine-Gray ...
-[06:39:00] Sensitivity: Firth ...
-[06:39:12] B2: Lunn-McNeil ...
-[06:39:13] Lunn-McNeil m1 vs separate Sys csCox: max |diff beta| = 8.9e-16
+[07:35:30] Median post-progression follow-up (reverse KM): 18.7 months (17.3-21.1)
+[07:35:34] Engine vs riskRegression::predictRisk: max |diff| in 12-month CIF = 7.22e-16
+[07:35:34] Point estimates ...
+[07:35:34] Bootstrap: B = 1000, cores = 4
+[07:36:48] Bootstrap done: 1000 successful replicates in 1.2 min
+[07:36:48] B1: cause-specific Cox ...
+[07:36:48] B1: Fine-Gray ...
+[07:36:51] Sensitivity: Firth ...
+[07:37:04] B2: Lunn-McNeil ...
+[07:37:04] Lunn-McNeil m1 vs separate Sys csCox: max |diff beta| = 8.9e-16
                                                          test     chisq df            p
 1  pattern x cause (9 patterns; IH / EH / Systemic HCC death) 60.172006 16 4.895782e-07
 2 site x cause (IH / EH / Sys site), pattern main effect kept 48.803633  4 6.416388e-10
@@ -53,7 +53,7 @@
 7    Sys-TG  4.1644014 0.1246555790 0.498622316
 8    Sys-NL 12.8929290 0.0015861200 0.011102840
 9 Sys-TG+NL 14.5245637 0.0007015055 0.006313549
-[06:39:13] Validation ...
+[07:37:04] Validation ...
    variant                                               n    deaths allcause_SysTG   csHR_Sys_SysTG   allcause_IHNL   
 1  ORIGINAL matrix (target)                                NA   NA   1.96 (1.48-2.61) 4.11             0.76            
 2  Main cohort, adjusted, strata(Group)                  1786 1186   1.72 (1.22-2.43) 3.54 (1.97-6.37) 0.85 (0.71-1.02)
@@ -66,15 +66,19 @@
 9  Main cohort, adjusted, PPOS_status events             1786 1280   1.56 (1.11-2.20) 3.54 (1.97-6.37) 0.81 (0.68-0.97)
 10 Main cohort, baseline covariates without TTP          1786 1186   1.77 (1.26-2.48) 3.70 (2.07-6.64) 0.76 (0.63-0.90)
 11 Incl. flagged pts, baseline covariates without TTP    1797 1197   1.78 (1.27-2.50) 3.74 (2.09-6.70) 0.77 (0.65-0.93)
-[06:39:14] Sensitivity analyses ...
+[07:37:05] Sensitivity analyses ...
 Warning in coxph.fit(X, Y, istrat, offset, init, control, weights = weights,  :
   Loglik converged before variable  32 ; coefficient may be infinite. 
                                                            test    chisq df          p
 1    site x treatment group (all-cause death after progression)  6.91808  4 0.14028117
 2 pattern x treatment group (all-cause death after progression) 24.85744 16 0.07237835
-[06:39:15] Saving figures ...
+[07:37:06] Saving figures ...
 null device 
           1 
 null device 
           1 
-[06:39:25] All outputs written to /home/user/Test123456/Fig4.4/output
+null device 
+          1 
+null device 
+          1 
+[07:37:21] All outputs written to /home/user/Test123456/Fig4.4/output
